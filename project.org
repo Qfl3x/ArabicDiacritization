@@ -1,7 +1,7 @@
 #+TITLE: Arabic Diacritization Project
 
 * Dataset:
-The dataset used is [[github:AliOsm/arabic-text-diacritization][this dataset.]] The dataset consists of 50000 lines of diacritized Arabic text of mainly scholarly nature.
+The dataset used is [[https://github.com/AliOsm/arabic-text-diacritization][this dataset.]] The dataset consists of 50000 lines of diacritized Arabic text of mainly scholarly nature.
 
 *  Data Preprocessing:
 The preprocessing goes through steps:
