@@ -12,7 +12,8 @@ The preprocessing goes through steps:
 3. Analysis of the words; We run CAMel's morphological analysis tool on each word to obtain the morphological features. Along
    with morphological features, we also construct an array of encountered word stems, so each stem is mapped to an integer.
    The morphological features along with the index of the stem and the length of the word are put into a word_arr, an array of 64-bit Integers of length 19.
-** TODO The morphological analysis tool outputs several potential analyses. The current criteria is to pick the one with the highest prob of occuring in CAMel's dataset. This is obviously false, especially considering context is not taken into account. A solution for this may mean creating a part-of-speech tagger.
+** TODO Improve analysis selection
+The morphological analysis tool outputs several potential analyses. The current criteria is to pick the one with the highest prob of occuring in CAMel's dataset. This is obviously false, especially considering context is not taken into account. A solution for this may mean creating a part-of-speech tagger.
 
 * Current model:
 The current model looks for each word and its encountered diacritizations and chooses the most common one.

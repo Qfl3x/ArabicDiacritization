@@ -16,18 +16,20 @@ analyzer = camel_analyzer.Analyzer(db)
 
 
 #!========Diacritazation Hashing ========!#
+#
+
+#
+diac_dict = Dict{Char,Int8}('\u0651' => 20, #This is the diacritics lookup dictionary. 20 is the Shadda diacritic while others are all diacritics excluding Shadda.
+                            '\u064e' => 1,  #A letter can have a Shadda + ordinary diacritic (except Tanween, however considering Tanween as an ordinary diacritic does no harm).
+                            '\u064f' => 2,  #The goal is to go from a diacritic to an Int8. Saving memory and allowing the program to use ordinary Array operations especially indexing.
+                            '\u0650' => 3,  #This is necessary because in a unicode string, not all indexes correspond to a unicode character.
+                            '\u0652' => 4,  #(Notice how all loops through strings split the text first. Memory footprint should be minimal)
+                            '\u064b' => 5,  #For more information: https://docs.julialang.org/en/v1/manual/strings/#Unicode-and-UTF-8
+                            '\u064c' => 6,  #Note: 20 is arbitrary.
+                            '\u064d' => 7,
+                            )
 function hash_diac(diac::String)    #Function used to map from the diacritics of A LETTER to corresponding Int8. Useful due to the Shadda situation.
-    #
-    diac_dict = Dict{Char,Int8}( #This is the diacritics lookup dictionary. 20 is the Shadda diacritic while others are all diacritics excluding Shadda.
-    '\u064e' => 1,           #A letter can have a Shadda + ordinary diacritic (except Tanween, however considering Tanween as an ordinary diacritic does no harm).
-    '\u064f' => 2,           #The goal is to go from a diacritic to an Int8. Saving memory and allowing the program to use ordinary Array operations especially indexing.
-    '\u0650' => 3,           #This is necessary because in a unicode string, not all indexes correspond to a unicode character.
-    '\u0652' => 4,           #(Notice how all loops through strings split the text first. Memory footprint should be minimal)
-    '\u064b' => 5,           #For more information: https://docs.julialang.org/en/v1/manual/strings/#Unicode-and-UTF-8
-    '\u064c' => 6,           #Note: 20 is arbitrary.
-    '\u064d' => 7,
-    '\u0651' => 20,
-)
+
 
     hash = 0
     for char in diac
@@ -308,7 +310,7 @@ asp_dict, cas_dict, form_gen_dict,form_num_dict,gen_dict, mod_dict, num_dict, pe
 Main data pipeline function. Cuts the lines into words, and forms the vector of diacritization vectors (Int8 Vectors).
 """
 function clean_data(training_data)
-    training_data = un_diacritize(training_data)    #un_diacritize the text
+    training_data = un_diacritize.(training_data)    #un_diacritize the text
     training_text = [cut_into_words(training_data[i].text) for i = 1:length(training_data)]
     training_diac_in = [training_data[i].diacritization for i = 1:length(training_data)]
     training_diac = Vector{Vector{Vector{Int8}}}([])
@@ -472,9 +474,9 @@ function dumb_MLE(text_arr,diac_arr,rep_dict) #TODO: Better model
     return word_diac_dict
 end
 
-little_train = [train[1][1:2000],train[2][1:2000]]  #This is the limit of constant work on my RAM (8GB)
-text_arr, diac_arr, stems, rep_dict = analyze_data(little_train)
-word_diac_dict = dumb_MLE(text_arr,diac_arr,rep_dict)
+# little_train = [train[1][1:2000],train[2][1:2000]]  #This is the limit of constant work on my RAM (8GB)
+# text_arr, diac_arr, stems, rep_dict = analyze_data(little_train)
+# word_diac_dict = dumb_MLE(text_arr,diac_arr,rep_dict)
 #
 
 #!===========From word to diacritization=============!#
