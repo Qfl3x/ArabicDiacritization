@@ -1,54 +1,55 @@
-using PyCall
+#Diacritization project
+
+#TODO: Cut this file into smaller files.
+
+using PyCall:pyimport
 using StatsBase:countmap
 
-camel_normalize = pyimport("camel_tools.utils.normalize")
-camel_database = pyimport("camel_tools.morphology.database")
-camel_analyzer = pyimport("camel_tools.morphology.analyzer")
+camel_normalize = pyimport("camel_tools.utils.normalize")       #Needed for normalizing unicode
+camel_database = pyimport("camel_tools.morphology.database")    #Morphology database
+camel_analyzer = pyimport("camel_tools.morphology.analyzer")    #Morphology analyzer
 
+#Initializing morphology analyzer
 db = camel_database.MorphologyDB.builtin_db()
 analyzer = camel_analyzer.Analyzer(db)
 
 
 
-
-struct DiacritizedText
-    text::String
-    diacritization::Vector{Int8}
-end
-#Diacritazation Hashing ===============
-diac_dict = Dict{Char,Int8}(
-    '\u064e' => 1,
-    '\u064f' => 2,
-    '\u0650' => 3,
-    '\u0652' => 4,
-    '\u064b' => 5,
-    '\u064c' => 6,
+#!========Diacritazation Hashing ========!#
+function hash_diac(diac::String)    #Function used to map from the diacritics of A LETTER to corresponding Int8. Useful due to the Shadda situation.
+    #
+    diac_dict = Dict{Char,Int8}( #This is the diacritics lookup dictionary. 20 is the Shadda diacritic while others are all diacritics excluding Shadda.
+    '\u064e' => 1,           #A letter can have a Shadda + ordinary diacritic (except Tanween, however considering Tanween as an ordinary diacritic does no harm).
+    '\u064f' => 2,           #The goal is to go from a diacritic to an Int8. Saving memory and allowing the program to use ordinary Array operations especially indexing.
+    '\u0650' => 3,           #This is necessary because in a unicode string, not all indexes correspond to a unicode character.
+    '\u0652' => 4,           #(Notice how all loops through strings split the text first. Memory footprint should be minimal)
+    '\u064b' => 5,           #For more information: https://docs.julialang.org/en/v1/manual/strings/#Unicode-and-UTF-8
+    '\u064c' => 6,           #Note: 20 is arbitrary.
     '\u064d' => 7,
     '\u0651' => 20,
 )
-reverse_diac_dict = Dict{Int8,Char}(
 
-    1 => '\u064e',
-    2 => '\u064f',
-    3 => '\u0650',
-    4 => '\u0652',
-    5 => '\u064b',
-    6 => '\u064c',
-    7 => '\u064d',
-    20 => '\u0651'
-)
-function hash_diac(diac::String)
     hash = 0
     for char in diac
         hash += diac_dict[char]
     end
     return hash
 end
+"""A simple datastructure to hold the text and its diacritization. Has 2 fields:
+    * text: the un-diacritized text
+    * diacritization: The Int8 Vector holding the diacritics of each letter
+"""
+struct DiacritizedText
+    text::String
+    diacritization::Vector{Int8}
+end
+#!======================================!#
 
-
-d = "\u064b\u064c\u064d\u064e\u064f\u0650\u0651\u0652"
-
-function normalize_med(input)
+"""
+Function for normalizing the types of vowel elongation (مد). Currently unused as it confuses the morphology analyzer.
+Note that all normalizations are DISABLED (except unicode). They all seem to mess with the analyzer. (Which is odd considering CAMel recommends normalizing beforehand) <--!!
+"""
+function normalize_med(input) #
 
     capturing_regex_w = r"[و](?![\u064b\u064c\u064d\u064e\u064f\u0650\u0651\u0652])"
     capturing_regex_y = r"[ي](?![\u064b\u064c\u064d\u064e\u064f\u0650\u0651\u0652])"
@@ -62,30 +63,39 @@ function normalize_med(input)
     return input
 end
 
+"""
+Function that splits a text into undiacritized text and its diacritics. Output is a DiacritizedText datastructure.
+Also eliminates numbers and punctuation. (Corpus is split into sentences anyways)
+"""
 function un_diacritize(input)
+
+    d = "\u064b\u064c\u064d\u064e\u064f\u0650\u0651\u0652"  #String of diacritics for lookup below.
+
+
     input = camel_normalize.normalize_unicode(input)
     #input = normalize_med(input) #Normalize the مد
     text = ""
     diac = [Int8(0) for _ = 1:(length(collect(eachmatch(r"[أ-ي]",input)))+length(collect(eachmatch(r"[ئءؤةآ]",input))))]
+    #Intializes diacritics array. It looks for characters and initializes an array of Int8 zeroes for each one. (Spaces not considered for memory)
 
-    input = split(input, "")
+    input = split(input, "") #Splitting input into its unicode characters.
     diac_count = 0
     for char in input
-        if (match(r"[[:punct:]0-9]",char) === nothing)
-            if !occursin(char, d)
+        if (match(r"[[:punct:]0-9]",char) === nothing) #Remove numbers and punctuation
+            if !occursin(char, d) #char is not a diacritic
+                #All normalizations are DISABLED
                 # if char === "إ" || char === "ئ" || char === "ء" #Normalizing Hamza
                 #     text *= "أ"
                 # elseif char == "ة"                       #Normalizing ت
                 #     text *= "ت"
                 # else
-                    text *= char
-                #end
+                text *= char
 
-                if !(match(r"[أ-ي]",string(char)) === nothing)
+                if !(match(r"[أ-ي]",string(char)) === nothing) #Diacritic counter necessary as some letters may have more than one and some have none.
                     diac_count += 1
                 end
             else
-                diac[diac_count] += diac_dict[only(char)]
+                diac[diac_count] += diac_dict[only(char)] #picks up the diacritics counted. `only`` function is necessary as the dictionaries map Char to Int8, not strings.
             end
         end
 
@@ -94,7 +104,22 @@ function un_diacritize(input)
     return DiacritizedText(text,diac)
 end
 
+"""
+Goes from DiacritizedText to a diacritized Arabic String. (Numbers and punctuation is not preserved if fed the output of `un_diacritize`)
+"""
 function diacritize(input)
+
+    reverse_diac_dict = Dict{Int8,Char}(    #The reverse lookup dictionary for diacritics, used for going from the Int8 to diacritic.
+                                            1 => '\u064e',
+                                            2 => '\u064f',
+                                            3 => '\u0650',
+                                            4 => '\u0652',
+                                            5 => '\u064b',
+                                            6 => '\u064c',
+                                            7 => '\u064d',
+                                            20 => '\u0651'
+                                            )
+
     output = ""
     text = split(input.text, "")
     for i=1:length(input.text)
@@ -113,27 +138,23 @@ function diacritize(input)
     output
 end
 
-
-s = open("train.txt") do file
-    read(file, String)
-end
-
-s = split(s, "\n")[1:end-1]
-display(un_diacritize("قٌيِثً :"))
+display(un_diacritize("قٌيِثً :")) #Sanity check
 
 #TODO: Reintegrate punctuation.
-function cut_into_words(line)
-    #line = replace(line, r"[[:punct:]0-9]" => "")
+function cut_into_words(line) #Straightforward function, splits a line into words.
     line = replace(line, r"[  ][  ]+" => " ")
     line = lstrip(line)
     line = rstrip(line)
-    line = replace(line, "\u200f" => "")
+    line = replace(line, "\u200f" => "") #Right-to-Left unicode hidden character. Present in all lines.
     line = split(line, " ")
-    # for word in line
-    #     line_int = append!(line_int,[token_dict[only(char)] for char in word])
-    # end
     return line
 end
+
+#!==================== Morophological properties mapping =================!#
+#This next large bloc is used to go from the output of the CAMel morphological analysis function to Int objects. This is to have simple Int vectors going into the model. The result is a bunch of lookup dictionaries
+#Note issue: https://github.com/CAMeL-Lab/camel_tools/issues/74. The main source of these is the CAMel documentation: https://camel-tools.readthedocs.io/en/latest/reference/camel_morphology_features.html
+#However, certain tags are missing from the documentation but are output by the analyzer.
+
 
 asp = "c i p na"
 cas = "n a g na u"
@@ -278,19 +299,25 @@ end
 
 asp_dict, cas_dict, form_gen_dict,form_num_dict,gen_dict, mod_dict, num_dict, per_dict, rat_dict, stt_dict, vox_dict, pos_dict, prc0_dict,prc1_dict,prc2_dict,prc3_dict,enc0_dict = form_dictionaries()
 
+#!=================Bloc over===========================!#
 
-#!==============Data Acquisition Bloc ==================!#
 
+#!==============Data Acquisition Bloc==================!#
 
+"""
+Main data pipeline function. Cuts the lines into words, and forms the vector of diacritization vectors (Int8 Vectors).
+"""
 function clean_data(training_data)
+    training_data = un_diacritize(training_data)    #un_diacritize the text
     training_text = [cut_into_words(training_data[i].text) for i = 1:length(training_data)]
     training_diac_in = [training_data[i].diacritization for i = 1:length(training_data)]
     training_diac = Vector{Vector{Vector{Int8}}}([])
 
-    for line in 1:length(training_text)
-        cursor = 1
-        curr_arr = Vector{Vector{Int8}}([])
-        for word in training_text[line]
+    for line in 1:length(training_text)             #The loop is used to cut the large diacritization vectors of lines into each word's diacritization vector.
+        cursor = 1                                  #Costs some CPU cycles but saves memory.
+                                                    #Uses a cursor array to know where each word ends or begins. May be faster and more efficient to use pointers,
+        curr_arr = Vector{Vector{Int8}}([])         #but since the function only runs once (doesn't run if the training_data is already cleaned) and doesn't take much time
+        for word in training_text[line]             #it's not worth to optimize.
             curr_arr = append!(curr_arr, [training_diac_in[line][cursor:cursor+length(word)-1]])
             cursor  += length(word)
         end
@@ -298,21 +325,40 @@ function clean_data(training_data)
     end
     return training_text, training_diac
 end
-#display(clean_data_test(un_diacritize("قَامَ عُمَرٌ بِالسْلَامِ")))
-#Construct dataset, don't run if already defined
-if !(@isdefined train)
-    training_data = un_diacritize.(s)
-    train = clean_data(training_data)
+if !(@isdefined train) #Construct dataset, don't run if already defined
+
+    s = open("train.txt") do file #the training file from the dataset repo.
+        read(file, String)
+    end
+
+    s = split(s, "\n")[1:end-1] #Cuts it into lines.
+
+    train = clean_data(s)
 end
 
 #!===================================================!#
 
-#stems = Vector{String}([])
-#
+#These two arrays are used to loop through the properties. Necessary because sometimes the property is undefined (returns "-").
 property_list = split("asp cas form_gen form_num gen mod num per rat stt vox pos prc0 prc1 prc2 prc3 enc0"," ")
 dict_list = [asp_dict,cas_dict,form_gen_dict,form_num_dict,gen_dict,mod_dict,num_dict,per_dict,rat_dict,stt_dict,vox_dict,pos_dict,prc0_dict,prc1_dict,prc2_dict,prc3_dict,enc0_dict]
 
+"""
+The current function that goes from each word to its vector of properties.
+For each word, the output is a 19-length Int Vector.
+Words with the same analysis and diacritization are not repeated, instead a rep_dict is used, which maps
+the pair [word analysis, diacritization] into it's current count.
+Output should be ready to be fed to the classification model. (Maybe after dealing with the listed problems)
 
+Doing the analysis of a word with CAMel's analyzer provides a Vector of possible analysis.
+One of the important improvements currently is to make a smarter selection of the analysis then just the most common in CAMel's dataset.
+Another is context, the output for each word is independent of what other words may have occured in the sentence
+A third is out of vocab. As CAMel fails on certain not-so-common but easily recognized words (first example is :أعضاد. It is a simple plural form
+of عضد which is correctly detected by CAMel while its plural isn't even though it follows the form أفعال a common plural form and not
+a special case by any means)
+
+(After doing a few tests on CAMel's own diacritization tool, it appears to suffer from the same issue)
+
+"""
 function analyze_data(train)
     text_arr = Vector{Vector{Int}}([])
     diac_arr = Vector{Vector{Int8}}([])
@@ -323,7 +369,9 @@ function analyze_data(train)
             highest_prob = -100.
             most_likely_analysis = 0
             analyses = analyzer.analyze(train[1][i][j])
-            for analysis in analyses
+
+            #TODO: Something smarter than "just pick the one with the highest pos_lex_logprob"
+            for analysis in analyses #Checks for highest pos_lex_logprob
                 prob = analysis["pos_lex_logprob"]
                 if  prob > highest_prob
                     most_likely_analysis = analysis
@@ -331,10 +379,7 @@ function analyze_data(train)
                 end
             end
             analysis = most_likely_analysis
-            # display(train[1][i][j])
-            # display(length(analyses))
-            # display((i,j))
-            if analyses == [] #Out of Vocab.
+            if analyses == [] #Out of Vocab. case
                 stems = append!(stems,[train[1][i][j]])
                 word_arr = [length(train[1][i][j]),length(stems),0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
                 text_arr = append!(text_arr, [word_arr])
@@ -348,6 +393,7 @@ function analyze_data(train)
             else
                 root_id = findfirst(x->x==analysis["root"],stems)
             end
+            #DEBUG BLOC necessary due to the discripancy between CAMel's documentation flags and the actual flags.
             # display(asp_dict[analysis["asp"]])
             # display(cas_dict[analysis["cas"]])
             # display(form_gen_dict[analysis["form_gen"]])
@@ -368,10 +414,11 @@ function analyze_data(train)
             word_arr = zeros(Int,19)
             word_arr[1] = length(train[1][i][j])
             word_arr[2] = root_id
-            for i = 1:length(property_list)
-                if property_list[i] in keys(analysis)
+            for i = 1:length(property_list) #Goes through the properties one by one to check if they're undefined.
+
+                if property_list[i] in keys(analysis) #Certain property keys ARE NOT in the analysis. This is necessary.
                     pre_dict = analysis[property_list[i]]
-                    if pre_dict == "-"
+                    if pre_dict == "-" #Could add a dash to every property dictionary I suppose.
                         continue
                     end
 
@@ -398,13 +445,16 @@ function analyze_data(train)
     end
     return text_arr, diac_arr, stems, rep_dict
 end
-little_train = [train[1][1:2000],train[2][1:2000]]
-#
-function dumb_MLE(text_arr,diac_arr,rep_dict)
-    seen_arrays = Vector{Vector{Int}}([])
+
+"""
+Dumb MLE model. Just looks up the most common diacritization of each word analysis (which itself it the most common
+analysis on CAMel's database). Does not take context into account, nor does it take word similarities
+"""
+function dumb_MLE(text_arr,diac_arr,rep_dict) #TODO: Better model
+    seen_arrays = Vector{Vector{Int}}([]) #Array of seen words. as rep_dict includes certain pairs with the same word analysis but different diacritization. We only take the one most common.
     word_diac_dict = Dict{Vector{Int},Vector{Int8}}()
     for i = 1:length(text_arr)
-        if text_arr[i] in seen_arrays
+        if text_arr[i] in seen_arrays #Pass seen words
             continue
         end
 
@@ -422,12 +472,18 @@ function dumb_MLE(text_arr,diac_arr,rep_dict)
     return word_diac_dict
 end
 
-#text_arr, diac_arr, stems, rep_dict = analyze_data(little_train)
-#word_diac_dict = dumb_MLE(text_arr,diac_arr,rep_dict)
+little_train = [train[1][1:2000],train[2][1:2000]]  #This is the limit of constant work on my RAM (8GB)
+text_arr, diac_arr, stems, rep_dict = analyze_data(little_train)
+word_diac_dict = dumb_MLE(text_arr,diac_arr,rep_dict)
 #
 
 #!===========From word to diacritization=============!#
-#
+"""
+Inference part. Goes from a word (String) to it's corresponding word_arr then checks for its existence in the analyzed words.
+After finding it, the word is diacritized and output.
+
+If the word is not found, it just outputs the word back.
+"""
 function diacritize_word(word,stems,word_diac_dict)
     highest_prob = -100.
     most_likely_analysis = 0
