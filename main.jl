@@ -5,6 +5,9 @@ using NNlib:gather
 import Flux.functor
 import Base.size,Base.show
 
+include("model.jl")
+
+
 #Embedding layer: (From Transformers.jl)
 #
 """
@@ -186,10 +189,10 @@ function un_tokenize_dict_constructor()
     return D
 end
 
-#if !(@isdefined token_dict)
+if !(@isdefined token_dict)
     token_dict = token_dict_constructor()
     un_token_dict = un_tokenize_dict_constructor()
-#end
+end
 
 function un_tokenize(word::Vector{Int})
 
@@ -212,17 +215,6 @@ function partition_data(training_data)
     training_data = un_diacritize.(training_data)
     training_text = [retype_data(training_data[i].text) for i = 1:length(training_data)]
     training_diac_in = [training_data[i].diacritization for i = 1:length(training_data)]
-    #training_diac = Vector{Vector{Int}}([])
-
-    # for line in 1:length(training_text)
-    #     cursor = 1
-    #     curr_arr = Vector{Vector{Int}}([])
-    #     for word in training_text[line]
-    #         curr_arr = append!(curr_arr, [training_diac_in[line][cursor:cursor+length(word)-1]])
-    #         cursor  += length(word)
-    #     end
-    #     training_diac = append!(training_diac, [curr_arr])
-    # end
     return training_text, training_diac_in
 end
 
@@ -247,72 +239,99 @@ end
 function pad_output_vector(vec,i,type)
     return append!(vec,zeros(type,i-length(vec)))
 end
-function format_output(train_y)
-    #output_arr = OneHotArray{UInt32,23,2,3,Matrix{UInt32}}(undef,0,0,0)
-    output_arr = reshape(onehotbatch(train_y[1],0:22),23,100,:)
-    for line in train_y[2:end]
-        output_arr =cat(output_arr,onehotbatch(line,0:22), dims=3) #push!(output_arr,onehotbatch(line,0:22))
+# function format_output(train_y)
+#     #output_arr = OneHotArray{UInt32,23,2,3,Matrix{UInt32}}(undef,0,0,0)
+#     output_arr = reshape(onehotbatch(train_y[1],0:22),23,100,:)
+#     for line in train_y[2:end]
+#         output_arr =cat(output_arr,onehotbatch(line,0:22), dims=3)
+#     end
+#     return output_arr
+# end
+function returned_lines(train, trunc)
+    lines = 0
+    for line in train[1]
+        line_over = false
+        ind = 0
+        while !line_over
+            if length(line) - ind <= trunc
+                lines += 1
+                break
+            end
+            #println("ASD")
+            ind = ind + 100
+            lines += 1
+        end
     end
-    return output_arr
-    #display(size(onehotbatch.(train_y,0:22)))
-    #train_y = reshape(onehotbatch.(train_y,0:22),23,length(train_y))
+    return lines
 end
+
 function data_trunc(train,trunc)
-    #display(train[1][1][1:97])
-    train_x = reshape(pad_input_vector(train[1][1][1:97],trunc,Int),100,:)
-    line_y = pad_output_vector(train[2][1][1:97],trunc,Int)
-    train_y = reshape(onehotbatch(line_y,0:22),23,100,:)
-    train[1][1] = deleteat!(train[1][1],1:97)
-    train[2][1] = deleteat!(train[2][1],1:97)
-    #train_x = Vector{Vector{Int64}}([])
-    #train_x = reshape(pad_vector([1][1][1:end],trunc,Int),100,:)
-    #train_y = Vector{Vector{Int}}([])
+    space_ind = findall(x->x==1,train[1][1])
+    space_ind = filter(x->x<=trunc,space_ind)
+    chosen_ind = maximum(space_ind)
+
+    length_of_data = returned_lines(train,trunc)
+    train_x = ones(Int,trunc,length_of_data)
+    train_y = zeros(Int,23,trunc,length_of_data)
+
+    # train_x = reshape(pad_input_vector(train[1][1][1:chosen_ind],trunc,Int),trunc,:)
+    # line_y = pad_output_vector(train[2][1][1:chosen_ind],trunc,Int)
+    # train_y = reshape(onehotbatch(line_y,0:22),23,trunc,:)
+    # train[1][1] = deleteat!(train[1][1],1:chosen_ind)
+    # train[2][1] = deleteat!(train[2][1],1:chosen_ind)
+    N_ind = 1
     for i in 1:length(train[1])
-        while length(train[1][i])>0
+        curr_ind = 1
+        while curr_ind < length(train[1][i])
             if length(train[1][i])<=trunc
-                train_x = hcat(train_x, pad_input_vector(train[1][i][1:end],trunc,Int))
-                train_y = cat(train_y,onehotbatch(pad_output_vector(train[2][i][1:end],trunc,Int),0:22),dims=3)
-                #train_x = hcat(train_x, [pad_vector(train[1][i][1:end],trunc,Int)])
-                #train_x = hcat(train_x, [pad_vector(train[1][i][1:end],trunc,Int)])
-                # train_x = append!(train_x,[pad_input_vector(train[1][i][1:end],trunc,Int)])
-                # train_y = append!(train_y,[pad_vector(train[2][i][1:end],trunc,Int)])
+                train_x[1:length(train[1][i]),N_ind] = train[1][i]
+                train_y[:,1:length(train[2][i]),N_ind] = onehotbatch(train[2][i][1:end],0:22)
+                # train_x = hcat(train_x, pad_input_vector(train[1][i][1:end],trunc,Int))
+                # train_y = cat(train_y,onehotbatch(pad_output_vector(train[2][i][1:end],trunc,Int),0:22),dims=3)
+
                 break
             end
             space_ind = findall(x->x==1,train[1][i])
-            space_ind = filter(x->x<=trunc,space_ind)
+            space_ind = append!(space_ind,length(train[1][i]))
+            space_ind = filter(x->x>=curr_ind,space_ind)
+            #display(space_ind)
+            space_ind = filter(x->x<=(trunc+curr_ind-1),space_ind)
+            #display(space_ind)
+            #display(length(train[1][i]))
             chosen_ind = maximum(space_ind)
-            train_x = hcat(train_x, pad_input_vector(train[1][i][1:chosen_ind],trunc,Int))
-            train_y = cat(train_y,onehotbatch(pad_output_vector(train[2][i][1:chosen_ind],trunc,Int),0:22),dims=3)
+            train_x[1:(chosen_ind-curr_ind+1),N_ind] = train[1][i][curr_ind:chosen_ind]
+            train_y[:,1:(chosen_ind-curr_ind+1),N_ind] = onehotbatch(train[2][i][curr_ind:chosen_ind],0:22)
+
+            curr_ind = chosen_ind + 1
+            # train_x = hcat(train_x, pad_input_vector(train[1][i][1:chosen_ind],trunc,Int))
+            # train_y = cat(train_y,onehotbatch(pad_output_vector(train[2][i][1:chosen_ind],trunc,Int),0:22),dims=3)
             #train_y = append!(train_y,[pad_vector(train[2][i][1:chosen_ind],trunc,Int)])
-            train[1][i] = deleteat!(train[1][i],1:chosen_ind)
-            train[2][i]= deleteat!(train[2][i],1:chosen_ind)
+            # train[1][i] = deleteat!(train[1][i],1:chosen_ind)
+            # train[2][i]= deleteat!(train[2][i],1:chosen_ind)
         end
     end
-    #train_y =cat(format_output(train_y)...,dims=3)
-    #train_y = format_output(train_y)
-    #train_x =cat(train_x...,dims=2)
     return train_x,train_y
 end
 
-
-if !(@isdefined train)
+#display(returned_lines(partition_data(s[1:1000]),100))
+#if !(@isdefined train)
     #cut_data = partition_data(s)
 #display(length(s))
-    train = data_trunc(partition_data(s[1:10000]),100)
-end
-train_loader = DataLoader((data=train[1],label=train[2]),batchsize=128,shuffle=true)
-function nn()
-    return Chain(
-        Embed(100,37),
-        #LSTM(50,40),
-        LSTM(100,50),
-        Dense(50,30),
-        #x -> permutedims(x,[2,1]),
-        Dense(30,23),
-        softmax)
-end
-model = nn()
-
+    #@time train = data_trunc(partition_data(s),100)
+#end
+#train_loader = DataLoader((data=train[1],label=train[2]),batchsize=128,shuffle=true)
+# function nn()
+#     return Chain(
+#         Embed(100,37),
+#         #LSTM(50,40),
+#         LSTM(100,50),
+#         Dense(50,30),
+#         #x -> permutedims(x,[2,1]),
+#         Dense(30,23),
+#         softmax)
+# end
+# model = nn()
+display(model)
 loss(x,y) = logitcrossentropy(model(x),y)
 ps = params(model)
 opt = ADAM(0.005)
@@ -331,4 +350,4 @@ function train_model(epochs)
     end
     return model
 end
-train_model(10)
+#train_model(10)
