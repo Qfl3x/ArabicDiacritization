@@ -1,7 +1,8 @@
-using Flux:LSTM,functor,Dense,Chain,params,ADAM,softmax,onehotbatch,DataLoader,gradient,update!,OneHotArray
+using Flux:LSTM,functor,Dense,Chain,params,ADAM,softmax,onehotbatch,DataLoader,gradient,update!,OneHotArray,gpu
 using Base:size,show
 using Flux.Losses:logitcrossentropy
 using NNlib:gather
+using CUDA
 import Flux.functor
 import Base.size,Base.show
 
@@ -156,9 +157,6 @@ function diacritize(input)
 end
 
 
-s = open("train.txt") do file
-    read(file, String)
-end
 
 s = split(s, "\n")[1:end-1]
 display(un_diacritize("قٌيِثً :"))
@@ -314,12 +312,20 @@ function data_trunc(train,trunc)
 end
 
 #display(returned_lines(partition_data(s[1:1000]),100))
-#if !(@isdefined train)
-    #cut_data = partition_data(s)
-#display(length(s))
-    #@time train = data_trunc(partition_data(s),100)
-#end
-#train_loader = DataLoader((data=train[1],label=train[2]),batchsize=128,shuffle=true)
+if !(@isdefined train)
+
+    train_s = open("train.txt") do file
+        read(file, String)
+    end
+    val_s = open("val.txt") do file
+        read(file, String)
+    end
+
+    train = data_trunc(partition_data(train_s), 300)
+    val = data_trunc(partition_data(val_s), 300)
+end
+train_loader = DataLoader((data=train[1],label=train[2]),batchsize=128,shuffle=true)
+val_loader   = DataLoader((data=val[1],label=val[2]),batchsize=128,shuffle=true)
 # function nn()
 #     return Chain(
 #         Embed(100,37),
@@ -336,17 +342,40 @@ loss(x,y) = logitcrossentropy(model(x),y)
 ps = params(model)
 opt = ADAM(0.005)
 function train_model(epochs)
+    train_error_arr = []
+    val_error_arr = []
     train_error_current = 0.
+    val_error_current   =0.
     for epoch in 1:epochs
         for (x,y) in train_loader
+            x = gpu(x)
+            y = gpu(y)
             gs = gradient(() -> loss(x,y),ps) # Gradient with respect to ps
             train_error_current += loss(x,y)
             update!(opt,ps,gs)
         end
+        for (x,y) in val_loader
+            x = gpu(x)
+            y = gpu(y)
+            val_error_current += loss(x,y)
+        end
+
+
         train_error_current /= length(train_loader)
+        val_error_current /= length(val_loader)
+
         @info "Epoch :" epoch
         @info "Training_Error :" train_error_current
+        @info "Validation Error:" val_error_current
+        train_error_arr = append!(train_error_arr,train_error_current)
+        val_error_arr = append!(val_error_arr,val_error_current)
+        if val_error_current > val_error_arr[end-1]
+            @info "Validation error capped"
+            break
+        end
+
         train_error_current = 0.
+        val_error_current =0.
     end
     return model
 end
