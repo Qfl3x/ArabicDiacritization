@@ -1,8 +1,10 @@
-using Flux:LSTM,functor,Dense,Chain,params,ADAM,softmax,onehotbatch,DataLoader,gradient,update!,OneHotArray,gpu
+using Flux:LSTM,functor,Dense,Chain,params,ADAM,softmax,onehotbatch,DataLoader,gradient,update!,OneHotArray,gpu,onecold
+using Statistics: mean
 using Base:size,show
 using Flux.Losses:logitcrossentropy
 using NNlib:gather
-using CUDA
+#using CUDA
+using BSON:@load
 import Flux.functor
 import Base.size,Base.show
 
@@ -107,8 +109,6 @@ end
     
 function un_diacritize(input)
 
-    #input = normalize_med(input) #Normalize the مد
-    #
     input = replace(input,r"[[:punct:]]"=>"")
     input = replace(input,r"[\u060c]"=>"")
 
@@ -120,7 +120,6 @@ function un_diacritize(input)
 
     text = ""
     diac = zeros(Int, length(input)-length(collect(eachmatch(d_re,input))))
-    #diac = [Int(0) for _ = 1:(length(collect(eachmatch(r"[أ-ي ]",input)))+length(collect(eachmatch(r"[ئءؤةآ]",input))))]
 
     input = split(input, "")
     diac_count = 0
@@ -136,7 +135,6 @@ function un_diacritize(input)
             diac_str = ""
         else
             diac_str *= char
-            #diac[diac_count] += diac_dict[only(char)]
         end
     end
     if diac_str != ""
@@ -158,11 +156,7 @@ end
 
 
 
-s = split(s, "\n")[1:end-1]
 display(un_diacritize("قٌيِثً :"))
-# training_text = [training_data[i].text for i = 1:length(training_data)]
-# training_diac = [training_data[i].diacritization for i = 1:length(training_data)]
-
 token_str = " \u0621\u0622\u0623\u0624\u0625\u0626\u0627\u0628\u0629\u062a\u062b\u062c\u062d\u062e\u062f\u0630\u0631\u0632\u0633\u0634\u0635\u0636\u0637\u0638\u0639\u063a\u0641\u0642\u0643\u0644\u0645\u0646\u0647\u0648\u0649\u064a"
 
 function token_dict_constructor()
@@ -227,7 +221,6 @@ function partition_data_test(input)
     return text, diac
 end
 
-#display(partition_data_test(un_diacritize("قَامَ عُمَرٌ بِالسْلَامِ")))
 #Construct dataset, don't run if already defined
 
 function pad_input_vector(vec,i,type)
@@ -237,14 +230,7 @@ end
 function pad_output_vector(vec,i,type)
     return append!(vec,zeros(type,i-length(vec)))
 end
-# function format_output(train_y)
-#     #output_arr = OneHotArray{UInt32,23,2,3,Matrix{UInt32}}(undef,0,0,0)
-#     output_arr = reshape(onehotbatch(train_y[1],0:22),23,100,:)
-#     for line in train_y[2:end]
-#         output_arr =cat(output_arr,onehotbatch(line,0:22), dims=3)
-#     end
-#     return output_arr
-# end
+
 function returned_lines(train, trunc)
     lines = 0
     for line in train[1]
@@ -272,11 +258,6 @@ function data_trunc(train,trunc)
     train_x = ones(Int,trunc,length_of_data)
     train_y = zeros(Int,23,trunc,length_of_data)
 
-    # train_x = reshape(pad_input_vector(train[1][1][1:chosen_ind],trunc,Int),trunc,:)
-    # line_y = pad_output_vector(train[2][1][1:chosen_ind],trunc,Int)
-    # train_y = reshape(onehotbatch(line_y,0:22),23,trunc,:)
-    # train[1][1] = deleteat!(train[1][1],1:chosen_ind)
-    # train[2][1] = deleteat!(train[2][1],1:chosen_ind)
     N_ind = 1
     for i in 1:length(train[1])
         curr_ind = 1
@@ -284,8 +265,6 @@ function data_trunc(train,trunc)
             if length(train[1][i])<=trunc
                 train_x[1:length(train[1][i]),N_ind] = train[1][i]
                 train_y[:,1:length(train[2][i]),N_ind] = onehotbatch(train[2][i][1:end],0:22)
-                # train_x = hcat(train_x, pad_input_vector(train[1][i][1:end],trunc,Int))
-                # train_y = cat(train_y,onehotbatch(pad_output_vector(train[2][i][1:end],trunc,Int),0:22),dims=3)
 
                 break
             end
@@ -301,58 +280,54 @@ function data_trunc(train,trunc)
             train_y[:,1:(chosen_ind-curr_ind+1),N_ind] = onehotbatch(train[2][i][curr_ind:chosen_ind],0:22)
 
             curr_ind = chosen_ind + 1
-            # train_x = hcat(train_x, pad_input_vector(train[1][i][1:chosen_ind],trunc,Int))
-            # train_y = cat(train_y,onehotbatch(pad_output_vector(train[2][i][1:chosen_ind],trunc,Int),0:22),dims=3)
-            #train_y = append!(train_y,[pad_vector(train[2][i][1:chosen_ind],trunc,Int)])
-            # train[1][i] = deleteat!(train[1][i],1:chosen_ind)
-            # train[2][i]= deleteat!(train[2][i],1:chosen_ind)
-        end
+       end
     end
     return train_x,train_y
 end
 
-#display(returned_lines(partition_data(s[1:1000]),100))
-if !(@isdefined train)
+#if !(@isdefined train)
 
     train_s = open("train.txt") do file
         read(file, String)
     end
+    train_s = split(train_s, "\n")[1:end-1]
+
     val_s = open("val.txt") do file
         read(file, String)
     end
+    val_s = split(val_s, "\n")[1:end-1]
 
-    train = data_trunc(partition_data(train_s), 300)
-    val = data_trunc(partition_data(val_s), 300)
-end
+train = data_trunc(partition_data(train_s[1:1000]), 300)
+train_pre = partition_data(train_s[1:1000])
+    #val = data_trunc(partition_data(val_s), 300)
+#end
 train_loader = DataLoader((data=train[1],label=train[2]),batchsize=128,shuffle=true)
-val_loader   = DataLoader((data=val[1],label=val[2]),batchsize=128,shuffle=true)
-# function nn()
-#     return Chain(
-#         Embed(100,37),
-#         #LSTM(50,40),
-#         LSTM(100,50),
-#         Dense(50,30),
-#         #x -> permutedims(x,[2,1]),
-#         Dense(30,23),
-#         softmax)
-# end
-# model = nn()
+#val_loader   = DataLoader((data=val[1],label=val[2]),batchsize=128,shuffle=true)
+
 display(model)
 loss(x,y) = logitcrossentropy(model(x),y)
-ps = params(model)
+
 opt = ADAM(0.005)
-function train_model(epochs)
+function train_model(epochs,model)
+    model = model |> gpu
+
+    ps = params(model)
+    loss(x,y) = logitcrossentropy(model(x),y)
+    opt = ADAM(0.005)
+
     train_error_arr = []
     val_error_arr = []
     train_error_current = 0.
     val_error_current   =0.
+
     for epoch in 1:epochs
+        prev_ps = copy(ps)
         for (x,y) in train_loader
-            x = gpu(x)
-            y = gpu(y)
-            gs = gradient(() -> loss(x,y),ps) # Gradient with respect to ps
+            x, y = x |> gpu, y |> gpu
+            println(typeof(x))
+            gs = gradient(() -> loss(x,y), ps)
+            Flux.update!(opt, ps, gs)
             train_error_current += loss(x,y)
-            update!(opt,ps,gs)
         end
         for (x,y) in val_loader
             x = gpu(x)
@@ -369,14 +344,20 @@ function train_model(epochs)
         @info "Validation Error:" val_error_current
         train_error_arr = append!(train_error_arr,train_error_current)
         val_error_arr = append!(val_error_arr,val_error_current)
-        if val_error_current > val_error_arr[end-1]
+        if (epoch > 1) && ((val_error_current > val_error_arr[end-1]) || (isapprox(val_error_current,val_error_arr[end-1])))
             @info "Validation error capped"
+            params(model) = prev_ps
             break
         end
 
         train_error_current = 0.
         val_error_current =0.
     end
-    return model
+    return cpu(model),train_error_arr,val_error_arr
 end
+
 #train_model(10)
+
+#@load "model2.bson" model
+
+accuracy(x,y) = mean(onecold(model(x)) .== onecold(y))

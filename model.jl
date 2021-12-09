@@ -1,7 +1,3 @@
-module Model
-
-export model
-
 
 using Flux
 using Flux:Recur,LSTMCell,@functor
@@ -68,7 +64,8 @@ model = Chain(Embed(100,37),
               BLSTM(100,50),
               Dense(100,100),
               BLSTM(100,50),
-              Dense(100,50),
-              Dense(30,23))
-
-end
+              Dense(100,100),
+              BLSTM(100,50),
+              Dense(100,100),
+              Dropout(0.2),
+              Dense(100,23))
