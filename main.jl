@@ -256,7 +256,7 @@ function data_trunc(train,trunc)
 
     length_of_data = returned_lines(train,trunc)
     train_x = ones(Int,trunc,length_of_data)
-    train_y = zeros(Int,23,trunc,length_of_data)
+    train_y = zeros(Int,16,trunc,length_of_data)
 
     N_ind = 1
     for i in 1:length(train[1])
@@ -264,8 +264,8 @@ function data_trunc(train,trunc)
         while curr_ind < length(train[1][i])
             if length(train[1][i])<=trunc
                 train_x[1:length(train[1][i]),N_ind] = train[1][i]
-                train_y[:,1:length(train[2][i]),N_ind] = onehotbatch(train[2][i][1:end],0:22)
-
+                train_y[:,1:length(train[2][i]),N_ind] = onehotbatch(train[2][i][1:end],0:16)
+                N_ind += 1
                 break
             end
             space_ind = findall(x->x==1,train[1][i])
@@ -277,9 +277,10 @@ function data_trunc(train,trunc)
             #display(length(train[1][i]))
             chosen_ind = maximum(space_ind)
             train_x[1:(chosen_ind-curr_ind+1),N_ind] = train[1][i][curr_ind:chosen_ind]
-            train_y[:,1:(chosen_ind-curr_ind+1),N_ind] = onehotbatch(train[2][i][curr_ind:chosen_ind],0:22)
+            train_y[:,1:(chosen_ind-curr_ind+1),N_ind] = onehotbatch(train[2][i][curr_ind:chosen_ind],0:16)
 
             curr_ind = chosen_ind + 1
+            N_ind += 1
        end
     end
     return train_x,train_y

@@ -34,6 +34,7 @@ end
 (e::Embed)(x::Vector{Vector{Int64}}) = (e::Embed).(x)
 
 show(io::IO, e::Embed) = print(io, "Embed($(size(e.embedding, 1)))")
+@functor Embed
 
 abstract type AbstractBLSTM{F} end
 # forward  :: Recur{LSTMCell{Matrix{Float32}, Vector{Float32}, Tuple{Matrix{Float32}, Matrix{Float32}}}, Tuple{Matrix{Float32}, Matrix{Float32}}}
