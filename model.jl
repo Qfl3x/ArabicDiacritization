@@ -1,6 +1,6 @@
 
 using Flux
-using Flux:Recur,LSTMCell,@functor
+using Flux:Recur,LSTMCell,@functor,Embedding
 using NNlib:gather
 import Base.size,Base.show
 
@@ -55,18 +55,42 @@ end
 
 function (m::BLSTM)(x::AbstractArray)
     forward_out  = m.forward(x)
-    backward_out = reverse(m.backward(reverse(x,dims=2)),dims=2)
+    backward_out = reverse(m.backward(reverse(x,dims=3)),dims=3)
     return cat(forward_out,backward_out,dims=1)
 end
-Flux.trainable(m::BLSTM) = (m.forward,m.backward)
+#Flux.trainable(m::BLSTM) = (m.forward,m.backward)
 @functor BLSTM
 
-model = Chain(Embed(100,37),
+model = Chain(Embedding(37,100),
               BLSTM(100,50),
               Dense(100,100),
-              BLSTM(100,50),
-              Dense(100,100),
-              BLSTM(100,50),
-              Dense(100,100),
-              Dropout(0.2),
-              Dense(100,23))
+              # BLSTM(100,50),
+              # Dense(100,100),
+              # BLSTM(100,50),
+              # Dense(100,100),
+              # BLSTM(100,50),
+              # Dense(100,100),
+              Dropout(0.1),
+              Dense(100,17))
+
+function test_func()
+    counter = 1
+    opt = ADAM(0.05)
+    loss(x,y) = logitcrossentropy(model(x),y)
+    ps = params(model)
+for (x,y) in train_loader
+
+
+    x_train = Array{Int}(x')
+    y_train = permutedims(y,[1,3,2])
+
+
+    display(size(model(Array{Int}(x'))))
+    display(size(permutedims(y,[1,3,2])))
+    gs = gradient(() -> loss(x_train,y_train), ps)
+            Flux.update!(opt, ps, gs)
+
+    counter += 1
+end
+end
+test_func()

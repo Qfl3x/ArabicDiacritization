@@ -4,43 +4,43 @@ using Base:size,show
 using Flux.Losses:logitcrossentropy
 using NNlib:gather
 #using CUDA
-using BSON:@load
+#using BSON:@load
 import Flux.functor
 import Base.size,Base.show
 
-include("model.jl")
+#include("model.jl")
 
 
 #Embedding layer: (From Transformers.jl)
 #
-"""
-    Embed(size::Int, vocab_size::Int)
-The Embedding Layer, `size` is the hidden size. `vocab_size` is the number of the vocabulary. Just a wrapper for embedding matrix.
-"""
-abstract type AbstractEmbed{F} end
-struct Embed{F ,W <: AbstractArray{F}} <: AbstractEmbed{F}
-    scale::F
-    embedding::W
-end
+# """
+#     Embed(size::Int, vocab_size::Int)
+# The Embedding Layer, `size` is the hidden size. `vocab_size` is the number of the vocabulary. Just a wrapper for embedding matrix.
+# """
+# abstract type AbstractEmbed{F} end
+# struct Embed{F ,W <: AbstractArray{F}} <: AbstractEmbed{F}
+#     scale::F
+#     embedding::W
+# end
 
-functor(e::Embed) = (e.embedding,), m -> Embed(e.scale, m...)
+# functor(e::Embed) = (e.embedding,), m -> Embed(e.scale, m...)
 
-size(e::Embed, s...) = size(e.embedding, s...)
+# size(e::Embed, s...) = size(e.embedding, s...)
 
-Embed(size::Int, vocab_size::Int; scale = one(Float32)) = Embed(Float32(scale), randn(Float32, size, vocab_size))
+# Embed(size::Int, vocab_size::Int; scale = one(Float32)) = Embed(Float32(scale), randn(Float32, size, vocab_size))
 
-function (e::Embed)(x::AbstractArray{Int})
-    if isone(e.scale)
-        gather(e.embedding, x)
-    else
-        e(x, e.scale)
-    end
-end
+# function (e::Embed)(x::AbstractArray{Int})
+#     if isone(e.scale)
+#         gather(e.embedding, x)
+#     else
+#         e(x, e.scale)
+#     end
+# end
 
-(e::Embed{F})(x, scale) where {F} = gather(e.embedding, x) .* convert(F, scale)
-(e::Embed)(x::Vector{Vector{Int64}}) = (e::Embed).(x)
+# (e::Embed{F})(x, scale) where {F} = gather(e.embedding, x) .* convert(F, scale)
+# (e::Embed)(x::Vector{Vector{Int64}}) = (e::Embed).(x)
 
-show(io::IO, e::Embed) = print(io, "Embed($(size(e.embedding, 1)))")
+# show(io::IO, e::Embed) = print(io, "Embed($(size(e.embedding, 1)))")
 
 
 
@@ -256,7 +256,7 @@ function data_trunc(train,trunc)
 
     length_of_data = returned_lines(train,trunc)
     train_x = ones(Int,trunc,length_of_data)
-    train_y = zeros(Int,16,trunc,length_of_data)
+    train_y = zeros(Int,17,trunc,length_of_data)
 
     N_ind = 1
     for i in 1:length(train[1])
@@ -286,7 +286,7 @@ function data_trunc(train,trunc)
     return train_x,train_y
 end
 
-#if !(@isdefined train)
+if !(@isdefined train)
 
     train_s = open("train.txt") do file
         read(file, String)
@@ -297,66 +297,78 @@ end
         read(file, String)
     end
     val_s = split(val_s, "\n")[1:end-1]
+    #train_pre = partition_data(train_s[1:1000])
 
-train = data_trunc(partition_data(train_s[1:1000]), 300)
-train_pre = partition_data(train_s[1:1000])
+    train = data_trunc(partition_data(train_s[1:100]), 300)
+#train_pre = partition_data(train_s[1:1000])
     #val = data_trunc(partition_data(val_s), 300)
-#end
-train_loader = DataLoader((data=train[1],label=train[2]),batchsize=128,shuffle=true)
+end
+train_loader = DataLoader((data=train[1],label=train[2]),batchsize=64,shuffle=true,partial=false)
 #val_loader   = DataLoader((data=val[1],label=val[2]),batchsize=128,shuffle=true)
 
 display(model)
 loss(x,y) = logitcrossentropy(model(x),y)
 
 opt = ADAM(0.005)
-function train_model(epochs,model)
-    model = model |> gpu
+function train_model(epochs, model)
+    #model = model |> gpu
 
-    ps = params(model)
-    loss(x,y) = logitcrossentropy(model(x),y)
-    opt = ADAM(0.005)
+    ps = copy(params(model))
+    loss(x, y) = logitcrossentropy(model(x), y)
+    opt = ADAM(0.05)
 
     train_error_arr = []
     val_error_arr = []
-    train_error_current = 0.
-    val_error_current   =0.
+    train_error_current = 0.0
+    #val_error_current   =0.
 
-    for epoch in 1:epochs
+    loader_length = length(train_loader)
+    for epoch = 1:epochs
         prev_ps = copy(ps)
-        for (x,y) in train_loader
-            x, y = x |> gpu, y |> gpu
-            println(typeof(x))
-            gs = gradient(() -> loss(x,y), ps)
+        counter = 1
+        for (x, y) in train_loader
+
+
+
+            x_train = Array{Int}(x')
+            y_train = permutedims(y, [1, 3, 2])
+
+
+            display(size(model(Array{Int}(x'))))
+            display(size(permutedims(y, [1, 3, 2])))
+            gs = gradient(() -> loss(x_train, y_train), ps)
             Flux.update!(opt, ps, gs)
-            train_error_current += loss(x,y)
+            train_error_current += loss(x_train,y_train)
+            counter += 1
         end
-        for (x,y) in val_loader
-            x = gpu(x)
-            y = gpu(y)
-            val_error_current += loss(x,y)
-        end
+
+        # for (x,y) in val_loader
+        #     x = gpu(x)
+        #     y = gpu(y)
+        #     val_error_current += loss(x,y)
+        # end
 
 
         train_error_current /= length(train_loader)
-        val_error_current /= length(val_loader)
+        #val_error_current = loss(gpu(val[1]),gpu(val[2]))
 
         @info "Epoch :" epoch
         @info "Training_Error :" train_error_current
-        @info "Validation Error:" val_error_current
-        train_error_arr = append!(train_error_arr,train_error_current)
-        val_error_arr = append!(val_error_arr,val_error_current)
-        if (epoch > 1) && ((val_error_current > val_error_arr[end-1]) || (isapprox(val_error_current,val_error_arr[end-1])))
-            @info "Validation error capped"
-            params(model) = prev_ps
-            break
-        end
+        #@info "Validation Error:" val_error_current
+        train_error_arr = append!(train_error_arr, train_error_current)
+        #val_error_arr = append!(val_error_arr,val_error_current)
+        # if (epoch > 1) && ((val_error_current > val_error_arr[end-1]) || (isapprox(val_error_current,val_error_arr[end-1])))
+        #     @info "Validation error capped"
+        #     #params(model) = prev_ps
+        #     #break
+        # end
 
-        train_error_current = 0.
-        val_error_current =0.
+        train_error_current = 0.0
+        #val_error_current =0.
     end
-    return cpu(model),train_error_arr,val_error_arr
+    return cpu(model), train_error_arr#,val_error_arr
 end
-
+mod2, train_err = train_model(2,model)
 #train_model(10)
 
 #@load "model2.bson" model
